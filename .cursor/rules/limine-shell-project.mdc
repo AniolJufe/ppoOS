@@ -1,0 +1,61 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+# Limine Shell OS Project
+
+This is an operating system development project built on the Limine bootloader with user-space program execution support.
+
+## Project Structure
+
+- [GNUmakefile](mdc:GNUmakefile) - Main makefile for the entire project, orchestrates building the kernel, initramfs, and final ISO image
+- [kernel/](mdc:kernel) - Contains the kernel implementation
+  - [kernel/src/main.c](mdc:kernel/src/main.c) - Kernel entry point, sets up Limine requests and initializes subsystems
+  - [kernel/src/src/](mdc:kernel/src/src) - Core kernel subsystems
+    - [kernel/src/src/syscall.c](mdc:kernel/src/src/syscall.c) - System call implementation
+    - [kernel/src/src/syscall.h](mdc:kernel/src/src/syscall.h) - System call interface definitions
+- [programs/](mdc:programs) - User-space programs that run on the kernel
+  - [programs/hello.c](mdc:programs/hello.c) - Simple hello world program
+  - [programs/test_write.c](mdc:programs/test_write.c) - System call testing program
+  - [programs/cat.c](mdc:programs/cat.c) - File reading utility
+  - [programs/echo.c](mdc:programs/echo.c) - Echo input to output
+  - [programs/limine_libc.c](mdc:programs/limine_libc.c) - Minimal C library implementation
+  - [programs/syscall_stub.s](mdc:programs/syscall_stub.s) - Assembly code for system call interface
+
+## Key Components
+
+### Bootloader Interface
+
+The kernel uses Limine as its bootloader, which provides services like framebuffer setup, module loading, and memory mapping.
+
+### System Calls
+
+The OS implements a basic set of system calls:
+- `SYS_EXIT (0)` - Exit the current program
+- `SYS_WRITE (1)` - Write to a file descriptor
+- `SYS_READ (2)` - Read from a file descriptor
+- `SYS_OPEN (3)` - Open a file
+- `SYS_CLOSE (4)` - Close a file descriptor
+
+Standard file descriptors:
+- `STDIN_FD (0)` - Standard input
+- `STDOUT_FD (1)` - Standard output
+- `STDERR_FD (2)` - Standard error
+
+### User Programs
+
+User programs are linked against a minimal C library implementation in `programs/limine_libc.c`. This provides syscall wrappers and basic string/memory functions.
+
+### Building and Running
+
+The project can be built using GNU Make:
+- `make` - Build the entire project
+- `make run` - Build and run in QEMU
+
+## Development Workflow
+
+1. Modify the kernel code in `kernel/src/`
+2. Add or update user programs in `programs/`
+3. Build the project with `make`
+4. Test in an emulator with `make run`

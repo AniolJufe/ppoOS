@@ -1,0 +1,355 @@
+#include "fs.h"
+#include "initramfs.h"
+#include "serial.h"
+#include <stddef.h>
+#include <string.h>
+
+// File system instance
+static struct fs_mount fs;
+
+// Memory allocation helper
+static void *fs_alloc(size_t size) {
+    // This is a very simple allocator for our demo
+    // In a real system, we'd use a proper memory allocator
+    static char mem_pool[64 * 1024]; // 64KB memory pool
+    static size_t mem_used = 0;
+    
+    if (mem_used + size > sizeof(mem_pool)) {
+        return NULL; // Out of memory
+    }
+    
+    void *ptr = mem_pool + mem_used;
+    mem_used += size;
+    return ptr;
+}
+
+void fs_init(void) {
+    // Clear filesystem state
+    memset(&fs, 0, sizeof(fs));
+    
+    // Set root directory
+    strcpy(fs.current_dir, "/");
+    
+    // Create root directory
+    struct fs_dir *root = &fs.dirs[fs.dir_count++];
+    strcpy(root->name, "/");
+    strcpy(root->path, "/");
+    
+    // Import files from initramfs
+    size_t count = 0;
+    while (1) {
+        const struct initramfs_file *src = initramfs_list(count);
+        if (!src) break;
+        count++;
+        
+        if (fs.file_count >= FS_MAX_FILES) {
+            serial_write("[fs_init] Warning: Reached max files limit\n", 41);
+            break; // No more room
+        }
+        
+        struct fs_file *dst = &fs.files[fs.file_count++];
+        
+        // Store the original filename without modification
+        // This ensures we can find it with or without ./ prefix
+        strncpy(dst->name, src->name, sizeof(dst->name) - 1);
+        dst->name[sizeof(dst->name) - 1] = '\0';
+        
+        serial_write("[fs_init] Stored: [", 19); 
+        serial_write(dst->name, strlen(dst->name)); 
+        serial_write("] Size: ", 8);
+        
+        // Convert size to decimal string
+        char size_str[16] = {0};
+        size_t size_val = src->size;
+        size_t idx = 0;
+        if (size_val == 0) {
+            size_str[idx++] = '0';
+        } else {
+            // Convert to string in reverse
+            while (size_val > 0) {
+                size_str[idx++] = '0' + (size_val % 10);
+                size_val /= 10;
+            }
+            // Reverse the string
+            for (size_t i = 0; i < idx / 2; i++) {
+                char tmp = size_str[i];
+                size_str[i] = size_str[idx - i - 1];
+                size_str[idx - i - 1] = tmp;
+            }
+        }
+        size_str[idx] = '\0';
+        
+        serial_write(size_str, strlen(size_str));
+        serial_write(" bytes\n", 7);
+
+        // Allocate memory for file content and copy it
+        dst->capacity = src->size; // Allocate exact size needed
+        dst->data = fs_alloc(dst->capacity);
+        if (!dst->data) {
+            serial_write("[fs_init] Failed to allocate memory for file: ", 45);
+            serial_write(dst->name, strlen(dst->name));
+            serial_write("\n", 1);
+            fs.file_count--; // Revert the file addition
+            break;
+        }
+        
+        // Copy the content
+        memcpy(dst->data, src->data, src->size);
+        dst->size = src->size;
+        dst->is_dir = false;
+    }
+    
+    serial_write("[fs_init] Initialized filesystem with ", 38);
+    // Convert file count to string
+    char count_str[8] = {0};
+    size_t count_val = fs.file_count;
+    size_t idx = 0;
+    if (count_val == 0) {
+        count_str[idx++] = '0';
+    } else {
+        // Convert to string in reverse
+        while (count_val > 0) {
+            count_str[idx++] = '0' + (count_val % 10);
+            count_val /= 10;
+        }
+        // Reverse the string
+        for (size_t i = 0; i < idx / 2; i++) {
+            char tmp = count_str[i];
+            count_str[i] = count_str[idx - i - 1];
+            count_str[idx - i - 1] = tmp;
+        }
+    }
+    count_str[idx] = '\0';
+    
+    serial_write(count_str, strlen(count_str));
+    serial_write(" files\n", 7);
+}
+
+const char *fs_get_current_dir(void) {
+    return fs.current_dir;
+}
+
+bool fs_change_dir(const char *path) {
+    // Handle special cases
+    if (!path || !*path) {
+        return false;
+    }
+    
+    // Handle root directory
+    if (strcmp(path, "/") == 0) {
+        strcpy(fs.current_dir, "/");
+        return true;
+    }
+    
+    // Check if directory exists
+    for (size_t i = 0; i < fs.dir_count; i++) {
+        if (strcmp(fs.dirs[i].name, path) == 0 || 
+            strcmp(fs.dirs[i].path, path) == 0) {
+            strcpy(fs.current_dir, fs.dirs[i].path);
+            return true;
+        }
+    }
+    
+    return false;
+}
+
+struct fs_file *fs_open(const char *name) {
+    if (!name || !*name) return NULL;
+
+    // Debug
+    serial_write("[fs_open] Trying to open file: ", 30);
+    serial_write(name, strlen(name));
+    serial_write("\n", 1);
+
+    // Create buffers for comparison - initialize to zeros to prevent garbage data
+    char processed_name[32] = {0};
+    char processed_entry[32] = {0};
+
+    // Strip leading './' from the requested name if present
+    if (strncmp(name, "./", 2) == 0) {
+        strncpy(processed_name, name + 2, sizeof(processed_name) - 1);
+    } else {
+        strncpy(processed_name, name, sizeof(processed_name) - 1);
+    }
+    processed_name[sizeof(processed_name) - 1] = '\0'; // Ensure null termination
+
+    serial_write("[fs_open] Processed name: ", 26);
+    serial_write(processed_name, strlen(processed_name));
+    serial_write("\n", 1);
+
+    // Search for the file in our registry
+    for (size_t i = 0; i < fs.file_count; i++) {
+        // Clear the entry buffer for each iteration
+        memset(processed_entry, 0, sizeof(processed_entry));
+        
+        // Make a clean copy of the entry name
+        strncpy(processed_entry, fs.files[i].name, sizeof(processed_entry) - 1);
+        processed_entry[sizeof(processed_entry) - 1] = '\0';
+
+        // Strip './' from the entry name if present
+        if (strncmp(processed_entry, "./", 2) == 0) {
+            // Safer approach - copy the string starting at position 2
+            for (size_t j = 0; j < sizeof(processed_entry) - 3; j++) {
+                processed_entry[j] = processed_entry[j + 2];
+            }
+            // Ensure string remains null-terminated
+            processed_entry[sizeof(processed_entry) - 3] = '\0';
+        }
+
+        // Debug output for comparison
+        serial_write("[fs_open] Comparing with: ", 26);
+        serial_write(processed_entry, strlen(processed_entry));
+        serial_write(" (original: ", 12);
+        serial_write(fs.files[i].name, strlen(fs.files[i].name));
+        serial_write(")\n", 2);
+
+        // Try both the processed name and direct comparison
+        if (strcmp(processed_entry, processed_name) == 0 || 
+            strcmp(fs.files[i].name, processed_name) == 0 ||
+            strcmp(fs.files[i].name, name) == 0) {
+            serial_write("[fs_open] Found match! Index ", 28);
+            char idx_str[4] = {0};
+            idx_str[0] = '0' + (i / 10);
+            idx_str[1] = '0' + (i % 10);
+            serial_write(idx_str, 2);
+            serial_write("\n", 1);
+            return &fs.files[i];
+        }
+    }
+
+    serial_write("[fs_open] No match found for: ", 30);
+    serial_write(name, strlen(name));
+    serial_write("\n", 1);
+    return NULL;
+}
+
+size_t fs_read(const struct fs_file *file, size_t offset, void *buf, size_t len) {
+    if (!file || !file->data || offset >= file->size) return 0;
+    
+    size_t to_copy = file->size - offset;
+    if (to_copy > len) to_copy = len;
+    
+    memcpy(buf, file->data + offset, to_copy);
+    return to_copy;
+}
+
+const struct fs_file *fs_list(size_t *count) {
+    if (count) {
+        *count = fs.file_count;
+    }
+    return fs.files;
+}
+
+struct fs_file *fs_create_file(const char *name) {
+    // Check if already exists
+    struct fs_file *existing = fs_open(name);
+    if (existing) {
+        return existing; // File already exists
+    }
+    
+    // Check if we have room for a new file
+    if (fs.file_count >= FS_MAX_FILES) {
+        return NULL; // No more room
+    }
+    
+    // Create new file
+    struct fs_file *file = &fs.files[fs.file_count++];
+    strncpy(file->name, name, sizeof(file->name) - 1);
+    file->name[sizeof(file->name) - 1] = '\0';
+    
+    // Allocate initial buffer
+    file->capacity = 256; // Start with 256 bytes
+    file->data = fs_alloc(file->capacity);
+    if (!file->data) {
+        fs.file_count--; // Revert the file addition
+        return NULL;
+    }
+    
+    file->size = 0;
+    file->data[0] = '\0'; // Empty string
+    file->is_dir = false;
+    
+    return file;
+}
+
+size_t fs_write(struct fs_file *file, size_t offset, const void *buf, size_t len) {
+    if (!file || !file->data) return 0;
+    
+    // Check if we need to expand the buffer
+    size_t new_size = offset + len;
+    if (new_size > file->capacity) {
+        // Calculate new capacity (double the needed size)
+        size_t new_capacity = new_size * 2;
+        
+        // Allocate new buffer
+        char *new_data = fs_alloc(new_capacity);
+        if (!new_data) {
+            return 0; // Failed to allocate
+        }
+        
+        // Copy existing data
+        memcpy(new_data, file->data, file->size);
+        
+        // Update file struct
+        file->data = new_data;
+        file->capacity = new_capacity;
+    }
+    
+    // Write the data
+    memcpy(file->data + offset, buf, len);
+    
+    // Update size if needed
+    if (new_size > file->size) {
+        file->size = new_size;
+        file->data[file->size] = '\0'; // Ensure null termination
+    }
+    
+    return len;
+}
+
+bool fs_create_dir(const char *name) {
+    // Check if already exists
+    for (size_t i = 0; i < fs.dir_count; i++) {
+        if (strcmp(fs.dirs[i].name, name) == 0) {
+            return true; // Directory already exists
+        }
+    }
+    
+    // Check if we have room for a new directory
+    if (fs.dir_count >= FS_MAX_DIRS) {
+        return false; // No more room
+    }
+    
+    // Create new directory
+    struct fs_dir *dir = &fs.dirs[fs.dir_count++];
+    strncpy(dir->name, name, sizeof(dir->name) - 1);
+    dir->name[sizeof(dir->name) - 1] = '\0';
+    
+    // Set the full path safely, avoiding snprintf
+    size_t max_len = sizeof(dir->path);
+    size_t name_len = strlen(name);
+    if (strcmp(fs.current_dir, "/") == 0) {
+        // Root directory case: path = "/" + name
+        if (1 + name_len + 1 > max_len) { // Check length: '/' + name + null terminator
+            fs.dir_count--; // Revert dir creation
+            return false; // Path too long
+        }
+        strcpy(dir->path, "/");
+        strcat(dir->path, name);
+    } else {
+        // Subdirectory case: path = current_dir + "/" + name
+        size_t current_len = strlen(fs.current_dir);
+        if (current_len + 1 + name_len + 1 > max_len) { // Check length: current + '/' + name + null
+            fs.dir_count--; // Revert dir creation
+            return false; // Path too long
+        }
+        strcpy(dir->path, fs.current_dir);
+        strcat(dir->path, "/");
+        strcat(dir->path, name);
+    }
+
+    // Ensure null termination just in case (should be handled by strcpy/strcat)
+    dir->path[max_len - 1] = '\0';
+
+    return true;
+}

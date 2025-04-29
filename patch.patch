@@ -1,0 +1,9 @@
+-#define USER_STACK_TOP_VADDR  0x100000000
++#define USER_STACK_TOP_VADDR  (0x100000000 - PAGE_SIZE)
+
+@@
+-    for (uint64_t vaddr = USER_STACK_BOTTOM_VADDR; vaddr < USER_STACK_TOP_VADDR; vaddr += PAGE_SIZE) {
++    for (uint64_t vaddr = USER_STACK_BOTTOM_VADDR; vaddr <= USER_STACK_TOP_VADDR; vaddr += PAGE_SIZE) {
+
+-    uint64_t user_rsp = USER_STACK_TOP_VADDR - 8;
++    uint64_t user_rsp = USER_STACK_TOP_VADDR + PAGE_SIZE - 8; /* 16-byte aligned */
