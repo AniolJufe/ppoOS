@@ -9,6 +9,13 @@
 #define FS_MAX_FILES 32
 #define FS_MAX_DIRS 8
 
+// Filesystem types
+typedef enum {
+    FS_TYPE_INITRAMFS = 0,
+    FS_TYPE_EXT2 = 1,
+    FS_TYPE_UNKNOWN = 255
+} fs_type_t;
+
 // File entry with mutable fields
 struct fs_file {
     char name[32];      // Filename with null terminator
@@ -16,6 +23,7 @@ struct fs_file {
     size_t size;        // File size
     size_t capacity;    // Allocated capacity for data
     bool is_dir;        // Whether this entry is a directory
+    fs_type_t fs_type;  // Which filesystem this file belongs to
 };
 
 // Directory entry
@@ -31,10 +39,14 @@ struct fs_mount {
     struct fs_dir dirs[FS_MAX_DIRS];
     size_t dir_count;
     char current_dir[FS_MAX_PATH];
+    fs_type_t active_fs;    // Currently active filesystem
 };
 
 // Initialize filesystem
 void fs_init(void);
+
+// Initialize ext2 filesystem from a disk image
+bool fs_mount_ext2(const void *data, size_t size);
 
 // Get current directory
 const char *fs_get_current_dir(void);

@@ -1,5 +1,6 @@
 #include "fs.h"
 #include "initramfs.h"
+#include "ext2.h"
 #include "serial.h"
 #include <stddef.h>
 #include <string.h>
@@ -34,6 +35,9 @@ void fs_init(void) {
     struct fs_dir *root = &fs.dirs[fs.dir_count++];
     strcpy(root->name, "/");
     strcpy(root->path, "/");
+    
+    // Set default filesystem type to initramfs
+    fs.active_fs = FS_TYPE_INITRAMFS;
     
     // Import files from initramfs
     size_t count = 0;
@@ -97,6 +101,7 @@ void fs_init(void) {
         memcpy(dst->data, src->data, src->size);
         dst->size = src->size;
         dst->is_dir = false;
+        dst->fs_type = FS_TYPE_INITRAMFS;
     }
     
     serial_write("[fs_init] Initialized filesystem with ", 38);
@@ -123,6 +128,35 @@ void fs_init(void) {
     
     serial_write(count_str, strlen(count_str));
     serial_write(" files\n", 7);
+    
+    // Check if any of the files is an ext2 image that we can mount
+    for (size_t i = 0; i < fs.file_count; i++) {
+        struct fs_file *file = &fs.files[i];
+        if (strcmp(file->name, "ext2.img") == 0 || 
+            strcmp(file->name, "disk.img") == 0) {
+            // Try to mount as ext2
+            if (ext2_detect(file->data, file->size)) {
+                serial_write("[fs_init] Found ext2 image: ", 27);
+                serial_write(file->name, strlen(file->name));
+                serial_write("\n", 1);
+                if (fs_mount_ext2(file->data, file->size)) {
+                    serial_write("[fs_init] Successfully mounted ext2 filesystem\n", 45);
+                    break;
+                }
+            }
+        }
+    }
+}
+
+// Mount an ext2 filesystem
+bool fs_mount_ext2(const void *data, size_t size) {
+    if (!ext2_init(data, size)) {
+        return false;
+    }
+    
+    // Switch to ext2 filesystem
+    fs.active_fs = FS_TYPE_EXT2;
+    return true;
 }
 
 const char *fs_get_current_dir(void) {
@@ -141,16 +175,26 @@ bool fs_change_dir(const char *path) {
         return true;
     }
     
-    // Check if directory exists
-    for (size_t i = 0; i < fs.dir_count; i++) {
-        if (strcmp(fs.dirs[i].name, path) == 0 || 
-            strcmp(fs.dirs[i].path, path) == 0) {
-            strcpy(fs.current_dir, fs.dirs[i].path);
+    // Handle based on active filesystem
+    if (fs.active_fs == FS_TYPE_EXT2) {
+        // Use ext2 driver
+        if (ext2_change_dir(path)) {
+            // Update our current directory
+            strcpy(fs.current_dir, path);
             return true;
         }
+        return false;
+    } else {
+        // Use initramfs driver (original implementation)
+        for (size_t i = 0; i < fs.dir_count; i++) {
+            if (strcmp(fs.dirs[i].name, path) == 0 || 
+                strcmp(fs.dirs[i].path, path) == 0) {
+                strcpy(fs.current_dir, fs.dirs[i].path);
+                return true;
+            }
+        }
+        return false;
     }
-    
-    return false;
 }
 
 struct fs_file *fs_open(const char *name) {
@@ -161,6 +205,13 @@ struct fs_file *fs_open(const char *name) {
     serial_write(name, strlen(name));
     serial_write("\n", 1);
 
+    // Handle based on active filesystem
+    if (fs.active_fs == FS_TYPE_EXT2) {
+        // Use ext2 driver
+        return ext2_open(name);
+    }
+    
+    // Use initramfs driver (original implementation)
     // Create buffers for comparison - initialize to zeros to prevent garbage data
     char processed_name[32] = {0};
     char processed_entry[32] = {0};
@@ -224,20 +275,36 @@ struct fs_file *fs_open(const char *name) {
 }
 
 size_t fs_read(const struct fs_file *file, size_t offset, void *buf, size_t len) {
-    if (!file || !file->data || offset >= file->size) return 0;
+    if (!file || offset >= file->size) return 0;
     
-    size_t to_copy = file->size - offset;
-    if (to_copy > len) to_copy = len;
-    
-    memcpy(buf, file->data + offset, to_copy);
-    return to_copy;
+    // Handle based on file's filesystem type
+    if (file->fs_type == FS_TYPE_EXT2) {
+        // Use ext2 driver
+        return ext2_read(file, offset, buf, len);
+    } else {
+        // Use initramfs driver (original implementation)
+        if (!file->data) return 0;
+        
+        size_t to_copy = file->size - offset;
+        if (to_copy > len) to_copy = len;
+        
+        memcpy(buf, file->data + offset, to_copy);
+        return to_copy;
+    }
 }
 
 const struct fs_file *fs_list(size_t *count) {
-    if (count) {
-        *count = fs.file_count;
+    // Handle based on active filesystem
+    if (fs.active_fs == FS_TYPE_EXT2) {
+        // Use ext2 driver
+        return ext2_list(fs.current_dir, count);
+    } else {
+        // Use initramfs driver (original implementation)
+        if (count) {
+            *count = fs.file_count;
+        }
+        return fs.files;
     }
-    return fs.files;
 }
 
 struct fs_file *fs_create_file(const char *name) {
@@ -245,6 +312,12 @@ struct fs_file *fs_create_file(const char *name) {
     struct fs_file *existing = fs_open(name);
     if (existing) {
         return existing; // File already exists
+    }
+    
+    // For now, only support file creation in initramfs
+    if (fs.active_fs == FS_TYPE_EXT2) {
+        serial_write("[fs_create_file] File creation not supported in ext2 yet\n", 55);
+        return NULL;
     }
     
     // Check if we have room for a new file
@@ -268,12 +341,21 @@ struct fs_file *fs_create_file(const char *name) {
     file->size = 0;
     file->data[0] = '\0'; // Empty string
     file->is_dir = false;
+    file->fs_type = FS_TYPE_INITRAMFS;
     
     return file;
 }
 
 size_t fs_write(struct fs_file *file, size_t offset, const void *buf, size_t len) {
-    if (!file || !file->data) return 0;
+    if (!file) return 0;
+    
+    // For now, only support writing to initramfs files
+    if (file->fs_type == FS_TYPE_EXT2) {
+        serial_write("[fs_write] Writing to ext2 files not supported yet\n", 49);
+        return 0;
+    }
+    
+    if (!file->data) return 0;
     
     // Check if we need to expand the buffer
     size_t new_size = offset + len;
@@ -308,6 +390,12 @@ size_t fs_write(struct fs_file *file, size_t offset, const void *buf, size_t len
 }
 
 bool fs_create_dir(const char *name) {
+    // For now, only support directory creation in initramfs
+    if (fs.active_fs == FS_TYPE_EXT2) {
+        serial_write("[fs_create_dir] Directory creation not supported in ext2 yet\n", 60);
+        return false;
+    }
+    
     // Check if already exists
     for (size_t i = 0; i < fs.dir_count; i++) {
         if (strcmp(fs.dirs[i].name, name) == 0) {

@@ -96,6 +96,7 @@ CFILES := \
     src/cpu.c \
     src/elf.c \
     src/exec.c \
+    src/ext2.c \
     src/flanterm.c \
     src/flanterm_fb_backend.c \
     src/fs.c \

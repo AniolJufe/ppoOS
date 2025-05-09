@@ -1,2 +1,3 @@
 hello.txt
 world.txt
+ext2.img
