@@ -10,6 +10,7 @@
 #define SYS_OPEN       3
 #define SYS_CLOSE      4
 #define SYS_READDIR    5 // New syscall for reading directory entries
+#define SYS_FORK       6 // Fork syscall
 
 // File descriptor constants
 #define STDIN_FD  0

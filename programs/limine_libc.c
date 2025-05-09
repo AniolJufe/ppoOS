@@ -30,6 +30,14 @@ int close(int fd) {
     return _syscall(SYS_CLOSE, fd, 0, 0, 0, 0);
 }
 
+int fork(void) {
+    return _syscall(SYS_FORK, 0, 0, 0, 0, 0);
+}
+
+int readdir(unsigned int index, struct dirent *dirp) {
+    return _syscall(SYS_READDIR, index, (uint64_t)dirp, sizeof(struct dirent), 0, 0);
+}
+
 // String functions
 size_t strlen(const char *s) {
     size_t len = 0;

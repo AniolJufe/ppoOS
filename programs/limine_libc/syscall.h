@@ -11,6 +11,7 @@
 #define SYS_OPEN       3
 #define SYS_CLOSE      4
 #define SYS_READDIR    5 // New syscall for reading directory entries
+#define SYS_FORK       6 // Fork syscall
 
 #define STDIN   0
 #define STDOUT  1
@@ -30,6 +31,7 @@ int read(int fd, void *buf, size_t count);
 int open(const char *pathname, int flags);
 int close(int fd);
 int readdir(unsigned int index, struct dirent *dirp); // Wrapper for SYS_READDIR
+int fork(void); // Wrapper for SYS_FORK
 
 #endif // SYSCALL_H
 

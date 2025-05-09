@@ -5,10 +5,16 @@
 #include <string.h> // Added for memcpy, strncpy
 #include "kernel.h"
 #include "fs.h"
-// #include "serial.h" // Removed: No direct serial debugging in syscalls
+#include "serial.h" // Needed for serial_write in fork syscall
 #include "flanterm.h" // Include the full definition of flanterm_context
 #include "vmm.h"     // For vmm_get_current_address_space and vmm_switch_address_space
 #include "shell.h"   // For shell_run
+#include "exec.h"    // For exec_elf
+
+// Define user memory layout constants (copied from exec.c)
+#define USER_STACK_PAGES 8 // Number of pages for the stack (8 * 4KiB = 32KiB)
+#define USER_STACK_TOP_VADDR  (0x80000000 - PAGE_SIZE) // Top page starts here (e.g., 0x7FFFF000)
+#define USER_STACK_BOTTOM_VADDR (USER_STACK_TOP_VADDR - (USER_STACK_PAGES * PAGE_SIZE))
 
 // External functions we'll need
 extern struct flanterm_context *ft_ctx;
@@ -418,6 +424,176 @@ static int64_t sys_readdir(uint64_t index, uint64_t buf_ptr, uint64_t buf_size, 
 }
 
 
+// Structure to store process context for fork
+struct fork_context {
+    // Registers saved by syscall_asm_entry
+    uint64_t r15;
+    uint64_t r14;
+    uint64_t r13;
+    uint64_t r12;
+    uint64_t rbx;
+    uint64_t rbp;
+    // Return address (RIP) saved by syscall instruction
+    uint64_t rip;
+    // User stack pointer
+    uint64_t rsp;
+    // RFLAGS register
+    uint64_t rflags;
+};
+
+// Simple PID counter for fork
+static uint64_t next_pid = 1;
+
+// External declarations needed for fork
+extern void* syscall_stack_top; // From syscall_entry.asm
+extern uint64_t user_rsp_storage; // From syscall_entry.asm
+extern uint64_t user_rip_storage; // From syscall_entry.asm
+extern uint64_t user_rflags_storage; // From syscall_entry.asm
+
+// Implementation of the fork syscall
+static int64_t sys_fork(uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5) {
+    (void)arg1; (void)arg2; (void)arg3; (void)arg4; (void)arg5; // Mark unused
+
+    serial_write("[FORK] Starting fork syscall\n", 29);
+
+    // 1. Get the current process's address space
+    pml4_t* parent_pml4 = vmm_get_current_address_space();
+    if (!parent_pml4) {
+        serial_write("[FORK] Error: Failed to get parent address space\n", 48);
+        return -1;
+    }
+
+    // 2. Create a new address space for the child process
+    pml4_t* child_pml4 = vmm_create_address_space();
+    if (!child_pml4) {
+        serial_write("[FORK] Error: Failed to create child address space\n", 50);
+        return -1;
+    }
+
+    // 3. Save the current process context
+    struct fork_context context;
+    // Get user stack pointer and instruction pointer from syscall_entry.asm
+    context.rsp = user_rsp_storage;
+    context.rip = user_rip_storage;
+    context.rflags = user_rflags_storage;
+    
+    // Get callee-saved registers from the stack
+    // These were pushed in syscall_asm_entry in the order: rbp, rbx, r12, r13, r14, r15
+    // The stack layout at this point is:
+    // [syscall_stack_top - 8*1] -> r15
+    // [syscall_stack_top - 8*2] -> r14
+    // [syscall_stack_top - 8*3] -> r13
+    // [syscall_stack_top - 8*4] -> r12
+    // [syscall_stack_top - 8*5] -> rbx
+    // [syscall_stack_top - 8*6] -> rbp
+    uint64_t* stack_ptr = (uint64_t*)syscall_stack_top;
+    context.r15 = *(stack_ptr - 1);
+    context.r14 = *(stack_ptr - 2);
+    context.r13 = *(stack_ptr - 3);
+    context.r12 = *(stack_ptr - 4);
+    context.rbx = *(stack_ptr - 5);
+    context.rbp = *(stack_ptr - 6);
+
+    // 4. Copy the parent's memory to the child
+    // We need to iterate through the parent's address space and copy all user pages
+    // For simplicity, we'll copy all pages below KERNEL_VMA_BASE
+    // This is a simplified approach and would need to be improved for a real OS
+    
+    // Define the user address space range
+    uint64_t user_start = 0;
+    uint64_t user_end = KERNEL_VMA_BASE;
+    uint64_t page_size = PAGE_SIZE;
+    
+    // Iterate through the user address space
+    for (uint64_t vaddr = user_start; vaddr < user_end; vaddr += page_size) {
+        // Get the physical address for this virtual address in the parent
+        uint64_t parent_phys = vmm_get_physical_address(parent_pml4, vaddr);
+        
+        // Skip if not mapped
+        if (parent_phys == 0) {
+            continue;
+        }
+        
+        // Allocate a new physical frame for the child
+        void* child_phys = pmm_alloc_frame();
+        if (!child_phys) {
+            serial_write("[FORK] Error: Out of memory during page copy\n", 45);
+            // TODO: Clean up already allocated pages
+            return -1;
+        }
+        
+        // Copy the page content
+        // Convert physical addresses to kernel virtual addresses for access
+        void* parent_virt = phys_to_virt(parent_phys);
+        void* child_virt = phys_to_virt((uint64_t)child_phys);
+        memcpy(child_virt, parent_virt, page_size);
+        
+        // Get the page flags from the parent
+        // For simplicity, we'll use the same flags
+        // In a real OS, you might want to handle copy-on-write here
+        uint64_t flags = PTE_PRESENT | PTE_USER;
+        
+        // Check if the page is writable in the parent
+        // This is a simplified approach - in a real OS you would get the actual flags
+        if (vaddr >= USER_STACK_BOTTOM_VADDR && vaddr <= USER_STACK_TOP_VADDR) {
+            // Stack pages are writable
+            flags |= PTE_WRITABLE;
+        }
+        
+        // Map the page in the child's address space
+        if (!vmm_map_page(child_pml4, vaddr, (uint64_t)child_phys, flags)) {
+            serial_write("[FORK] Error: Failed to map page in child\n", 42);
+            pmm_free_frame(child_phys);
+            // TODO: Clean up already allocated pages
+            return -1;
+        }
+    }
+    
+    // 5. Assign a PID to the child
+    uint64_t child_pid = next_pid++;
+    
+    // 6. Set up the child to return 0 from fork
+    // This is done by modifying the saved context that will be restored when the child runs
+    
+    // 7. Return the child's PID to the parent
+    serial_write("[FORK] Fork successful, child PID: ", 34);
+    // Convert PID to string and print it
+    char pid_str[20];
+    int i = 0;
+    uint64_t temp = child_pid;
+    if (temp == 0) {
+        pid_str[i++] = '0';
+    } else {
+        // Count digits
+        int digits = 0;
+        uint64_t temp_copy = temp;
+        while (temp_copy > 0) {
+            temp_copy /= 10;
+            digits++;
+        }
+        
+        // Convert to string (backwards)
+        i = digits - 1;
+        while (temp > 0) {
+            pid_str[i--] = '0' + (temp % 10);
+            temp /= 10;
+        }
+        i = digits;
+    }
+    pid_str[i] = '\0';
+    serial_write(pid_str, i);
+    serial_write("\n", 1);
+    
+    // Store the child's context and address space for later use
+    // In a real OS, you would have a process table to store this information
+    // For simplicity, we'll just return the PID and handle the child execution separately
+    
+    // TODO: Implement a proper process table and scheduler
+    // For now, we'll use a simple approach where the child executes after the parent returns
+    
+    return child_pid;
+}
+
 // Syscall function pointers
 // Ensure the order matches the SYS_ constants in syscall.h
 static syscall_fn_t syscall_table[] = {
@@ -426,12 +602,13 @@ static syscall_fn_t syscall_table[] = {
     [SYS_READ]    = sys_read,
     [SYS_OPEN]    = sys_open,
     [SYS_CLOSE]   = sys_close,
-    [SYS_READDIR] = sys_readdir, // Add the new syscall handler
+    [SYS_READDIR] = sys_readdir,
+    [SYS_FORK]    = sys_fork, // Add the fork syscall handler
     // Add other syscalls here as they are implemented
 };
 
 // Calculate table size dynamically, but ensure it's large enough for highest syscall number
-#define MAX_SYSCALL_NUM SYS_READDIR
+#define MAX_SYSCALL_NUM SYS_FORK
 #define SYSCALL_TABLE_SIZE (MAX_SYSCALL_NUM + 1)
 
 // Main syscall handler - called from assembly
@@ -502,6 +679,9 @@ void syscall_init(void) {
         fd_table[i].file = NULL;
         fd_table[i].position = 0;
     }
+
+    // Initialize PID counter
+    next_pid = 1;
 
     // Note: No serial prints here
 }

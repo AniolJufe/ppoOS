@@ -7,7 +7,7 @@ CFLAGS = -Wall -Wextra -ffreestanding -fno-builtin -nostdlib -m64 -mno-red-zone 
 
 LDFLAGS = -Tlink.ld -nostdlib -static -no-pie
 
-PROG_NAMES = hello cat echo ls test_write test_write_normal
+PROG_NAMES = hello cat echo ls test_write test_write_normal test_fork
 PROGRAMS = $(patsubst %,bin/%,$(PROG_NAMES))
 
 .PHONY: all clean

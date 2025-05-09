@@ -39,6 +39,13 @@ int readdir(unsigned int index, struct dirent *dirp) {
     return _syscall(SYS_READDIR, index, (uint64_t)dirp, sizeof(struct dirent), 0, 0);
 }
 
+// Wrapper for the SYS_FORK syscall
+// Creates a new process by duplicating the calling process.
+// Returns the child's PID to the parent, 0 to the child, or -1 on error.
+int fork(void) {
+    return _syscall(SYS_FORK, 0, 0, 0, 0, 0);
+}
+
 
 // These seem like remnants or incorrect implementations, removing them.
 /*

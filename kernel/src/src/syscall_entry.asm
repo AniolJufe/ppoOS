@@ -19,12 +19,18 @@ USER_DATA_SELECTOR equ 0x20 | 3 ; Selector 4 (0x20), RPL=3 -> 0x23
 
 section .bss
 align 16
-kernel_stack_bottom:
+syscall_stack_bottom:
     resb 8192 ; 8KB kernel stack for syscalls
-kernel_stack_top:
+syscall_stack_top:
 user_rsp_storage: resq 1 ; Storage for user RSP
 user_rip_storage: resq 1 ; Storage for user RIP (from RCX)
 user_rflags_storage: resq 1 ; Storage for user RFLAGS (from R11)
+
+; Export these symbols for use in the fork syscall
+global syscall_stack_top
+global user_rsp_storage
+global user_rip_storage
+global user_rflags_storage
 
 section .text
 
@@ -34,7 +40,7 @@ syscall_asm_entry:
 
     ; Switch to kernel stack
     mov [user_rsp_storage], rsp ; Save user RSP
-    mov rsp, kernel_stack_top   ; Load kernel RSP
+    mov rsp, syscall_stack_top   ; Load kernel RSP
 
     ; Save registers needed by C ABI and syscall
     ; Callee-saved: rbx, rbp, r12-r15
