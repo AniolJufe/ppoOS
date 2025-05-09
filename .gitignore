@@ -4,4 +4,6 @@
 *.iso
 *.hdd
 
-.cursor/*
+/.cursor
+/.vscode
+
