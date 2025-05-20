@@ -101,6 +101,7 @@ void fs_init(void) {
         memcpy(dst->data, src->data, src->size);
         dst->size = src->size;
         dst->is_dir = false;
+        dst->mode = 0644;
         dst->fs_type = FS_TYPE_INITRAMFS;
     }
     
@@ -341,6 +342,7 @@ struct fs_file *fs_create_file(const char *name) {
     file->size = 0;
     file->data[0] = '\0'; // Empty string
     file->is_dir = false;
+    file->mode = 0644;
     file->fs_type = FS_TYPE_INITRAMFS;
     
     return file;
@@ -439,5 +441,14 @@ bool fs_create_dir(const char *name) {
     // Ensure null termination just in case (should be handled by strcpy/strcat)
     dir->path[max_len - 1] = '\0';
 
+    return true;
+}
+
+bool fs_chmod(const char *name, unsigned short mode) {
+    struct fs_file *f = fs_open(name);
+    if (!f) {
+        return false;
+    }
+    f->mode = mode;
     return true;
 }
