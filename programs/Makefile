@@ -40,13 +40,15 @@ clean:
 
 # Install programs to initramfs
 install: all
-	@echo "Creating program CPIO archive..."
-	# Create the archive in the programs dir first, containing only built executables
-	cd bin && find . -maxdepth 1 -type f -print | cpio -o -H newc > ../initramfs_programs.cpio
-
-	@echo "Moving CPIO archive to root..."
-	# Move the programs-only archive to the root, overwriting any previous one
+	@echo "Creating initramfs with directories..."
+	rm -rf initramfs_root
+	mkdir -p initramfs_root/bin initramfs_root/home initramfs_root/etc initramfs_root/dev
+	for p in $(PROG_NAMES); do \
+	cp bin/$$p initramfs_root/bin/; \
+	done
+	cd initramfs_root && find . | cpio -o -H newc > ../initramfs_programs.cpio
 	mv initramfs_programs.cpio ../initramfs.cpio
+	rm -rf initramfs_root
 
 .PHONY: build install clean
 build: install

@@ -51,53 +51,28 @@ void fs_init(void) {
             break; // No more room
         }
         
+        size_t name_len = strlen(src->name);
+        if (name_len > 0 && src->name[name_len - 1] == '/') {
+            char dir_name[32];
+            if (name_len - 1 >= sizeof(dir_name))
+                name_len = sizeof(dir_name) - 1;
+            memcpy(dir_name, src->name, name_len - 1);
+            dir_name[name_len - 1] = '\0';
+            fs_create_dir(dir_name);
+            continue;
+        }
+
         struct fs_file *dst = &fs.files[fs.file_count++];
-        
-        // Store the original filename without modification
-        // This ensures we can find it with or without ./ prefix
         strncpy(dst->name, src->name, sizeof(dst->name) - 1);
         dst->name[sizeof(dst->name) - 1] = '\0';
-        
-        serial_write("[fs_init] Stored: [", 19); 
-        serial_write(dst->name, strlen(dst->name)); 
-        serial_write("] Size: ", 8);
-        
-        // Convert size to decimal string
-        char size_str[16] = {0};
-        size_t size_val = src->size;
-        size_t idx = 0;
-        if (size_val == 0) {
-            size_str[idx++] = '0';
-        } else {
-            // Convert to string in reverse
-            while (size_val > 0) {
-                size_str[idx++] = '0' + (size_val % 10);
-                size_val /= 10;
-            }
-            // Reverse the string
-            for (size_t i = 0; i < idx / 2; i++) {
-                char tmp = size_str[i];
-                size_str[i] = size_str[idx - i - 1];
-                size_str[idx - i - 1] = tmp;
-            }
-        }
-        size_str[idx] = '\0';
-        
-        serial_write(size_str, strlen(size_str));
-        serial_write(" bytes\n", 7);
 
-        // Allocate memory for file content and copy it
-        dst->capacity = src->size; // Allocate exact size needed
+        dst->capacity = src->size;
         dst->data = fs_alloc(dst->capacity);
         if (!dst->data) {
-            serial_write("[fs_init] Failed to allocate memory for file: ", 45);
-            serial_write(dst->name, strlen(dst->name));
-            serial_write("\n", 1);
-            fs.file_count--; // Revert the file addition
+            fs.file_count--;
             break;
         }
-        
-        // Copy the content
+
         memcpy(dst->data, src->data, src->size);
         dst->size = src->size;
         dst->is_dir = false;
@@ -201,10 +176,6 @@ bool fs_change_dir(const char *path) {
 struct fs_file *fs_open(const char *name) {
     if (!name || !*name) return NULL;
 
-    // Debug
-    serial_write("[fs_open] Trying to open file: ", 30);
-    serial_write(name, strlen(name));
-    serial_write("\n", 1);
 
     // Handle based on active filesystem
     if (fs.active_fs == FS_TYPE_EXT2) {
@@ -225,9 +196,6 @@ struct fs_file *fs_open(const char *name) {
     }
     processed_name[sizeof(processed_name) - 1] = '\0'; // Ensure null termination
 
-    serial_write("[fs_open] Processed name: ", 26);
-    serial_write(processed_name, strlen(processed_name));
-    serial_write("\n", 1);
 
     // Search for the file in our registry
     for (size_t i = 0; i < fs.file_count; i++) {
@@ -248,30 +216,15 @@ struct fs_file *fs_open(const char *name) {
             processed_entry[sizeof(processed_entry) - 3] = '\0';
         }
 
-        // Debug output for comparison
-        serial_write("[fs_open] Comparing with: ", 26);
-        serial_write(processed_entry, strlen(processed_entry));
-        serial_write(" (original: ", 12);
-        serial_write(fs.files[i].name, strlen(fs.files[i].name));
-        serial_write(")\n", 2);
 
         // Try both the processed name and direct comparison
         if (strcmp(processed_entry, processed_name) == 0 || 
             strcmp(fs.files[i].name, processed_name) == 0 ||
             strcmp(fs.files[i].name, name) == 0) {
-            serial_write("[fs_open] Found match! Index ", 28);
-            char idx_str[4] = {0};
-            idx_str[0] = '0' + (i / 10);
-            idx_str[1] = '0' + (i % 10);
-            serial_write(idx_str, 2);
-            serial_write("\n", 1);
             return &fs.files[i];
         }
     }
 
-    serial_write("[fs_open] No match found for: ", 30);
-    serial_write(name, strlen(name));
-    serial_write("\n", 1);
     return NULL;
 }
 
@@ -440,6 +393,16 @@ bool fs_create_dir(const char *name) {
 
     // Ensure null termination just in case (should be handled by strcpy/strcat)
     dir->path[max_len - 1] = '\0';
+
+    // Also create an entry in the file list so directory shows up in listings
+    if (fs.file_count < FS_MAX_FILES) {
+        struct fs_file *f = &fs.files[fs.file_count++];
+        memset(f, 0, sizeof(*f));
+        strncpy(f->name, name, sizeof(f->name) - 1);
+        f->name[sizeof(f->name) - 1] = '\0';
+        f->is_dir = true;
+        f->fs_type = FS_TYPE_INITRAMFS;
+    }
 
     return true;
 }
