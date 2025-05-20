@@ -22,6 +22,7 @@ struct fs_file {
     char *data;         // File content (mutable)
     size_t size;        // File size
     size_t capacity;    // Allocated capacity for data
+    unsigned short mode; // Permission bits (e.g. 0644)
     bool is_dir;        // Whether this entry is a directory
     fs_type_t fs_type;  // Which filesystem this file belongs to
 };
@@ -71,5 +72,8 @@ size_t fs_write(struct fs_file *file, size_t offset, const void *buf, size_t len
 
 // Create a new directory
 bool fs_create_dir(const char *name);
+
+// Change permissions of a file
+bool fs_chmod(const char *name, unsigned short mode);
 
 #endif // FS_H

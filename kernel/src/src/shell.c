@@ -43,6 +43,9 @@ extern struct flanterm_context *ft_ctx;
 #define ANSI_BG_CYAN    "\033[46m"
 #define ANSI_BG_WHITE   "\033[47m"
 
+static const char *user_list[] = {"user", "sudo", NULL};
+static const char *current_user = "user";
+
 static void shell_print(const char *s) {
     if (!ft_ctx) return;
     size_t len = 0;
@@ -68,6 +71,15 @@ static bool str_ends_with(const char *str, const char *suffix) {
     if (suffix_len > str_len) return false;
     
     return strcmp(str + str_len - suffix_len, suffix) == 0;
+}
+
+static unsigned short parse_octal(const char *s) {
+    unsigned short v = 0;
+    while (*s >= '0' && *s <= '7') {
+        v = (v << 3) | (*s - '0');
+        s++;
+    }
+    return v;
 }
 
 // Parse redirection operators in command line arguments
@@ -190,6 +202,10 @@ static void shell_exec(const char *cmd, char *argv[], int argc) {
         shell_print_colored("║ ", ANSI_CYAN);
         shell_print_colored("  cd     - Change directory         ║\n", ANSI_CYAN);
         shell_print_colored("║ ", ANSI_CYAN);
+        shell_print_colored("  chmod  - Change file mode        ║\n", ANSI_CYAN);
+        shell_print_colored("║ ", ANSI_CYAN);
+        shell_print_colored("  su     - Switch user             ║\n", ANSI_CYAN);
+        shell_print_colored("║ ", ANSI_CYAN);
         shell_print_colored("  reboot - Reboot the system        ║\n", ANSI_CYAN);
         shell_print_colored("║ ", ANSI_CYAN);
         shell_print_colored("  gui    - Start GUI demo          ║\n", ANSI_CYAN);
@@ -228,8 +244,29 @@ static void shell_exec(const char *cmd, char *argv[], int argc) {
             }
         }
         // No output on success, following Unix convention
+    } else if (!strcmp(cmd, "chmod")) {
+        if (argc < 3) {
+            shell_print("Usage: chmod <mode> <file>\n");
+        } else {
+            unsigned short mode = parse_octal(argv[1]);
+            if (!fs_chmod(argv[2], mode)) {
+                shell_print("chmod: failed to change mode\n");
+            }
+        }
+    } else if (!strcmp(cmd, "su")) {
+        if (argc < 2) {
+            shell_print("Usage: su <user>\n");
+        } else {
+            for (int i = 0; user_list[i]; i++) {
+                if (!strcmp(argv[1], user_list[i])) {
+                    current_user = user_list[i];
+                    return;
+                }
+            }
+            shell_print("Unknown user\n");
+        }
     }
-    // --- External Commands (ELF Execution) --- 
+    // --- External Commands (ELF Execution) ---
     else {
         if (!try_exec_elf_command(cmd, argv, argc)) {
             // If execution wasn't attempted (file not found)
@@ -256,7 +293,7 @@ void shell_run(void) {
     while (true) {
         // Print prompt
         const char *cwd = fs_get_current_dir();
-        shell_print_colored("user@limine", ANSI_BOLD ANSI_GREEN);
+        shell_print_colored(current_user, ANSI_BOLD ANSI_GREEN);
         shell_print(":");
         shell_print_colored(cwd, ANSI_BOLD ANSI_BLUE);
         shell_print("$ ");
