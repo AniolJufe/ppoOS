@@ -88,7 +88,10 @@ char *strcpy(char *dest, const char *src) {
     *p = '\0'; // Ensure null termination
     return dest;
 }
-    
+
+// WARNING: If strlen(src) >= n, dest may not be null-terminated.
+// Ensure dest has space for n characters. If n > strlen(src),
+// the remainder of dest up to n characters will be padded with null bytes.
 char *strncpy(char *dest, const char *src, size_t n) {
     char *p = dest;
     size_t i = 0;
@@ -101,8 +104,11 @@ char *strncpy(char *dest, const char *src, size_t n) {
         *p++ = '\0';
         i++;
     }
-    // Note: strncpy doesn't guarantee null termination if src is longer than n
-    // If null termination is always required, add it manually after the loop if needed.
+    // Pad with nulls if n > strlen(src)
+    while (i < n) {
+        *p++ = '\0';
+        i++;
+    }
     return dest;
 }
     
@@ -175,12 +181,6 @@ char* ultoa_hex(unsigned long value, char* buffer) {
     const char* hex_digits = "0123456789abcdef";
     int i = 0;
     bool leading_zero = true;
-
-    if (value == 0) {
-        *ptr++ = '0';
-        *ptr = '\0';
-        return buffer;
-    }
 
     // Process 64 bits, 4 bits at a time (16 hex digits)
     for (i = 60; i >= 0; i -= 4) {

@@ -91,6 +91,7 @@ override KLDFLAGS += \
 CFILES := \
     cc-runtime.c \
     lib/string.c \
+    lib/string_test.c \
     main.c \
     src/BasicRenderer.c \
     src/cpu.c \

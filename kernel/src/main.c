@@ -9,6 +9,7 @@
 #include "src/idt.h"
 #include "src/gdt.h"
 #include "src/syscall.h"
+#include "lib/string_test.h" // For test_ultoa_hex
 
 // Set the base revision to 2, this is recommended as this is the latest
 // base revision described by the Limine boot protocol specification.
@@ -156,6 +157,11 @@ void kmain(void)
     // Initialise serial first for debugging
     serial_init();
     serial_write("Kernel started.\n", 15);
+
+    // Run library tests
+    test_ultoa_hex();
+    serial_write("string_test completed.\n", 23);
+
 
     // Initialize Physical Memory Manager
     pmm_init();
