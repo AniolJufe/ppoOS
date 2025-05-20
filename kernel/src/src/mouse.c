@@ -36,6 +36,14 @@ static uint8_t mouse_read(void){
 }
 
 static struct mouse_state ms;
+#define MOUSE_SCALE 2
+static int8_t packet[3];
+static int packet_cycle = 0;
+
+void mouse_init(void) {
+    ms.x = ms.y = ms.dx = ms.dy = 0;
+    ms.buttons = 0;
+
 // Scale factor used to translate PS/2 deltas to screen pixels.
 // A slightly higher value makes cursor motion feel more responsive.
 #define MOUSE_SCALE 4
