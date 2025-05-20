@@ -1,3 +1,11 @@
+bin/
+home/
+etc/
+dev/
+bin/hello
+bin/cat
+bin/echo
+bin/ls
 hello.txt
 world.txt
 ext2.img

@@ -128,6 +128,12 @@ void fs_init(void) {
     
     serial_write(count_str, strlen(count_str));
     serial_write(" files\n", 7);
+
+    // Create default directories in the initramfs if they don't exist
+    const char *default_dirs[] = { "bin", "home", "etc", "dev", NULL };
+    for (size_t i = 0; default_dirs[i]; i++) {
+        fs_create_dir(default_dirs[i]);
+    }
     
     // Check if any of the files is an ext2 image that we can mount
     for (size_t i = 0; i < fs.file_count; i++) {
@@ -438,6 +444,16 @@ bool fs_create_dir(const char *name) {
 
     // Ensure null termination just in case (should be handled by strcpy/strcat)
     dir->path[max_len - 1] = '\0';
+
+    // Also create an entry in the file list so directory shows up in listings
+    if (fs.file_count < FS_MAX_FILES) {
+        struct fs_file *f = &fs.files[fs.file_count++];
+        memset(f, 0, sizeof(*f));
+        strncpy(f->name, name, sizeof(f->name) - 1);
+        f->name[sizeof(f->name) - 1] = '\0';
+        f->is_dir = true;
+        f->fs_type = FS_TYPE_INITRAMFS;
+    }
 
     return true;
 }

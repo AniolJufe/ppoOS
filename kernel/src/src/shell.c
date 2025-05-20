@@ -190,6 +190,8 @@ static void shell_exec(const char *cmd, char *argv[], int argc) {
         shell_print_colored("║ ", ANSI_CYAN);
         shell_print_colored("  cd     - Change directory         ║\n", ANSI_CYAN);
         shell_print_colored("║ ", ANSI_CYAN);
+        shell_print_colored("  ls     - List files              ║\n", ANSI_CYAN);
+        shell_print_colored("║ ", ANSI_CYAN);
         shell_print_colored("  reboot - Reboot the system        ║\n", ANSI_CYAN);
         shell_print_colored("║ ", ANSI_CYAN);
         shell_print_colored("  gui    - Start GUI demo          ║\n", ANSI_CYAN);
@@ -228,8 +230,18 @@ static void shell_exec(const char *cmd, char *argv[], int argc) {
             }
         }
         // No output on success, following Unix convention
+    } else if (!strcmp(cmd, "ls")) {
+        // List files in the current directory
+        size_t n = 0;
+        const struct fs_file *files = fs_list(&n);
+        for (size_t i = 0; i < n; i++) {
+            shell_print(files[i].name);
+            if (files[i].is_dir) shell_print("/");
+            shell_print("  ");
+        }
+        shell_print("\n");
     }
-    // --- External Commands (ELF Execution) --- 
+    // --- External Commands (ELF Execution) ---
     else {
         if (!try_exec_elf_command(cmd, argv, argc)) {
             // If execution wasn't attempted (file not found)
