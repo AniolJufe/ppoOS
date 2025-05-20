@@ -12,8 +12,10 @@
 #include "serial.h"
 #include "syscall.h"
 #include "vmm.h"
+#include "gui.h"
 
 struct flanterm_context *ft_ctx;
+static struct gui_context gui_ctx;
 
 #define SHELL_BUFSZ 256
 
@@ -46,6 +48,8 @@ void kernel(struct Framebuffer framebuffer) {
         0, 0, // font_scale_x, font_scale_y
         0 // margin
     );
+    gui_init(&gui_ctx, framebuffer);
+    gui_draw_desktop(&gui_ctx);
     syscall_init();
     const char msg[] = "Welcome to limine-shell (flanterm)!\n";
     flanterm_write(ft_ctx, msg, sizeof(msg)-1);
