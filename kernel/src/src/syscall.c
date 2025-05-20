@@ -501,7 +501,15 @@ static int64_t sys_fork(uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t ar
     
     // Define the user address space range
     uint64_t user_start = 0;
-    uint64_t user_end = KERNEL_VMA_BASE;
+    /*
+     * The original implementation attempted to iterate all pages up to
+     * KERNEL_VMA_BASE (0xffff800000000000). This results in an absurdly large
+     * loop (trillions of iterations) and effectively locks the kernel during
+     * fork.  User space in this project only occupies the lower 2GiB so limit
+     * the copy range accordingly.  This keeps the loop bounded to roughly half
+     * a million iterations while still covering all user pages.
+     */
+    uint64_t user_end = USER_STACK_TOP_VADDR + PAGE_SIZE;
     uint64_t page_size = PAGE_SIZE;
     
     // Iterate through the user address space
