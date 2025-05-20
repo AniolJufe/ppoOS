@@ -46,6 +46,62 @@ extern struct flanterm_context *ft_ctx;
 static const char *user_list[] = {"user", "sudo", NULL};
 static const char *current_user = "user";
 
+// ----------------- Environment Variable Support -----------------
+#define SHELL_MAX_ENV_VARS   32
+#define SHELL_MAX_ENV_NAME   32
+#define SHELL_MAX_ENV_VALUE 128
+
+struct env_var {
+    char name[SHELL_MAX_ENV_NAME];
+    char value[SHELL_MAX_ENV_VALUE];
+};
+
+static struct env_var env_vars[SHELL_MAX_ENV_VARS];
+static bool shell_exit_requested = false;
+
+static const char *get_env_var(const char *name) {
+    for (int i = 0; i < SHELL_MAX_ENV_VARS; i++) {
+        if (env_vars[i].name[0] && !strcmp(env_vars[i].name, name)) {
+            return env_vars[i].value;
+        }
+    }
+    return NULL;
+}
+
+static bool set_env_var(const char *name, const char *value) {
+    for (int i = 0; i < SHELL_MAX_ENV_VARS; i++) {
+        if (env_vars[i].name[0] && !strcmp(env_vars[i].name, name)) {
+            strncpy(env_vars[i].value, value, SHELL_MAX_ENV_VALUE - 1);
+            env_vars[i].value[SHELL_MAX_ENV_VALUE - 1] = 0;
+            return true;
+        }
+    }
+    for (int i = 0; i < SHELL_MAX_ENV_VARS; i++) {
+        if (!env_vars[i].name[0]) {
+            strncpy(env_vars[i].name, name, SHELL_MAX_ENV_NAME - 1);
+            env_vars[i].name[SHELL_MAX_ENV_NAME - 1] = 0;
+            strncpy(env_vars[i].value, value, SHELL_MAX_ENV_VALUE - 1);
+            env_vars[i].value[SHELL_MAX_ENV_VALUE - 1] = 0;
+            return true;
+        }
+    }
+    return false; // No space
+}
+
+static void unset_env_var(const char *name) {
+    for (int i = 0; i < SHELL_MAX_ENV_VARS; i++) {
+        if (env_vars[i].name[0] && !strcmp(env_vars[i].name, name)) {
+            env_vars[i].name[0] = 0;
+            env_vars[i].value[0] = 0;
+        }
+    }
+}
+
+static void init_default_env(void) {
+    set_env_var("PATH", "/bin:/usr/bin:." );
+    set_env_var("USER", current_user);
+}
+
 static void shell_print(const char *s) {
     if (!ft_ctx) return;
     size_t len = 0;
@@ -128,45 +184,39 @@ static bool parse_redirection(char *argv[], int *argc_ptr, char **outfile, bool 
 // Returns true if execution was attempted (even if it failed later),
 // false if the file wasn't found for execution.
 static bool try_exec_elf_command(const char *cmd, char *argv[], int argc) {
-    // TODO: Implement proper PATH handling
-    // For now, try prepending "/bin/"
     char path_buffer[256];
-    const char *paths_to_try[] = {
-        "/bin/",
-        "/usr/bin/",
-        "./", // Current directory
-        ""
-    };
 
-    for (size_t i = 0; i < sizeof(paths_to_try)/sizeof(paths_to_try[0]); ++i) {
-        // Construct full path
-        strncpy(path_buffer, paths_to_try[i], sizeof(path_buffer) - 1);
+    const char *path_env = get_env_var("PATH");
+    const char *paths = path_env ? path_env : "/bin:/usr/bin:.";
+    char paths_copy[256];
+    strncpy(paths_copy, paths, sizeof(paths_copy) - 1);
+    paths_copy[sizeof(paths_copy) - 1] = 0;
+
+    char *tok = strtok(paths_copy, ":");
+    while (tok) {
+        strncpy(path_buffer, tok, sizeof(path_buffer) - 1);
+        path_buffer[sizeof(path_buffer) - 1] = 0;
+        size_t len = strlen(path_buffer);
+        if (len && path_buffer[len - 1] != '/')
+            strncat(path_buffer, "/", sizeof(path_buffer) - len - 1);
         strncat(path_buffer, cmd, sizeof(path_buffer) - strlen(path_buffer) - 1);
-        path_buffer[sizeof(path_buffer) - 1] = 0; // Ensure null termination
 
-        // Check if the file exists in the filesystem
         struct fs_file *file = fs_open(path_buffer);
         if (file != NULL) {
-            // File found, attempt execution
-            // TODO: Pass argv/argc to the new process. This requires modifying
-            // exec_elf and the process startup code to place argv/argc somewhere
-            // accessible by the user program (e.g., on its stack).
-            (void)argv; // Mark unused for now
-            (void)argc; // Mark unused for now
-            
+            (void)argv;
+            (void)argc;
+
             shell_print("Executing: ");
             shell_print(path_buffer);
             shell_print("\n");
-            
+
             exec_elf(path_buffer);
-            
-            // If exec_elf returns, it means the process finished or failed to start.
-            // The cleanup (switching back CR3, etc.) is handled within exec_elf.
-            return true; // Indicate execution was attempted
+            return true;
         }
+        tok = strtok(NULL, ":");
     }
 
-    return false; // Command not found in any search path
+    return false;
 }
 
 
@@ -204,6 +254,10 @@ static void shell_exec(const char *cmd, char *argv[], int argc) {
         shell_print_colored("║ ", ANSI_CYAN);
         shell_print_colored("  ls     - List files              ║\n", ANSI_CYAN);
         shell_print_colored("  chmod  - Change file mode        ║\n", ANSI_CYAN);
+        shell_print_colored("  export - Set env variable        ║\n", ANSI_CYAN);
+        shell_print_colored("  unset  - Remove env variable     ║\n", ANSI_CYAN);
+        shell_print_colored("  set    - List env variables      ║\n", ANSI_CYAN);
+        shell_print_colored("  exit   - Leave shell             ║\n", ANSI_CYAN);
         shell_print_colored("║ ", ANSI_CYAN);
         shell_print_colored("  su     - Switch user             ║\n", ANSI_CYAN);
 
@@ -266,6 +320,30 @@ static void shell_exec(const char *cmd, char *argv[], int argc) {
                 shell_print("chmod: failed to change mode\n");
             }
         }
+    } else if (!strcmp(cmd, "export")) {
+        if (argc < 3) {
+            shell_print("Usage: export <name> <value>\n");
+        } else {
+            set_env_var(argv[1], argv[2]);
+        }
+    } else if (!strcmp(cmd, "unset")) {
+        if (argc < 2) {
+            shell_print("Usage: unset <name>\n");
+        } else {
+            unset_env_var(argv[1]);
+        }
+    } else if (!strcmp(cmd, "set")) {
+        for (int i = 0; i < SHELL_MAX_ENV_VARS; i++) {
+            if (env_vars[i].name[0]) {
+                shell_print(env_vars[i].name);
+                shell_print("=");
+                shell_print(env_vars[i].value);
+                shell_print("\n");
+            }
+        }
+    } else if (!strcmp(cmd, "exit")) {
+        shell_exit_requested = true;
+        return;
     } else if (!strcmp(cmd, "su")) {
         if (argc < 2) {
             shell_print("Usage: su <user>\n");
@@ -273,6 +351,7 @@ static void shell_exec(const char *cmd, char *argv[], int argc) {
             for (int i = 0; user_list[i]; i++) {
                 if (!strcmp(argv[1], user_list[i])) {
                     current_user = user_list[i];
+                    set_env_var("USER", current_user);
                     return;
                 }
             }
@@ -304,7 +383,8 @@ void shell_run(void) {
     shell_print_colored("\nLimine Kernel Shell\n", ANSI_BOLD ANSI_CYAN);
     shell_print("Type 'help' for available commands.\n");
 
-    while (true) {
+    init_default_env();
+    while (!shell_exit_requested) {
         // Print prompt
         const char *cwd = fs_get_current_dir();
         shell_print_colored(current_user, ANSI_BOLD ANSI_GREEN);
@@ -342,14 +422,30 @@ void shell_run(void) {
 
         // --- Parse command line into argv --- 
         argc = 0;
-        char *token = strtok(buffer, " \t\n\r"); // Use strtok for simple parsing
-        while (token != NULL && argc < SHELL_MAX_ARGS) {
-            // Copy token into persistent storage
-            strncpy(arg_bufs[argc], token, SHELL_MAX_ARG_LEN - 1);
-            arg_bufs[argc][SHELL_MAX_ARG_LEN - 1] = 0; // Ensure null termination
-            argv[argc] = arg_bufs[argc];
-            argc++;
-            token = strtok(NULL, " \t\n\r");
+        bool in_quotes = false;
+        size_t arg_idx = 0;
+        for (size_t i = 0; i <= buf_idx && argc < SHELL_MAX_ARGS; i++) {
+            char c = buffer[i];
+            if (c == '"') {
+                in_quotes = !in_quotes;
+            } else if ((c == ' ' || c == '\t' || c == 0) && !in_quotes) {
+                if (arg_idx > 0 || c == 0) {
+                    arg_bufs[argc][arg_idx] = 0;
+                    // Variable expansion for tokens starting with '$'
+                    if (arg_bufs[argc][0] == '$') {
+                        const char *val = get_env_var(&arg_bufs[argc][1]);
+                        if (val)
+                            strncpy(arg_bufs[argc], val, SHELL_MAX_ARG_LEN - 1);
+                        arg_bufs[argc][SHELL_MAX_ARG_LEN - 1] = 0;
+                    }
+                    argv[argc] = arg_bufs[argc];
+                    argc++;
+                    arg_idx = 0;
+                }
+            } else {
+                if (arg_idx < SHELL_MAX_ARG_LEN - 1)
+                    arg_bufs[argc][arg_idx++] = c;
+            }
         }
         argv[argc] = NULL; // Null-terminate argv array
 
