@@ -1,5 +1,11 @@
 #include "gui.h"
 #include <stddef.h>
+#include <string.h>
+
+#define GUI_MAX_WIDTH 1920
+#define GUI_MAX_HEIGHT 1200
+
+static uint32_t gui_backbuffer[GUI_MAX_WIDTH * GUI_MAX_HEIGHT];
 
 void gui_init(struct gui_context *ctx, struct Framebuffer fb) {
     if (!ctx) return;
@@ -7,13 +13,14 @@ void gui_init(struct gui_context *ctx, struct Framebuffer fb) {
     ctx->width = fb.width;
     ctx->height = fb.height;
     ctx->pitch = fb.pixels_per_scan_line;
+    ctx->backbuffer = gui_backbuffer;
 }
 
 void gui_fill_rect(struct gui_context *ctx, int x, int y, int w, int h, uint32_t color) {
-    if (!ctx || !ctx->fb) return;
+    if (!ctx || !ctx->backbuffer) return;
     for (int j = 0; j < h; j++) {
         if ((unsigned)(y + j) >= ctx->height) break;
-        uint32_t *row = ctx->fb + (y + j) * ctx->pitch;
+        uint32_t *row = ctx->backbuffer + (y + j) * ctx->width;
         for (int i = 0; i < w; i++) {
             if ((unsigned)(x + i) >= ctx->width) break;
             row[x + i] = color;
@@ -40,6 +47,15 @@ void gui_draw_desktop(struct gui_context *ctx) {
 void gui_draw_cursor(struct gui_context *ctx, int x, int y, uint32_t color) {
     gui_fill_rect(ctx, x, y, 10, 1, color);
     gui_fill_rect(ctx, x, y, 1, 10, color);
+}
+
+void gui_flush(struct gui_context *ctx) {
+    if (!ctx || !ctx->fb || !ctx->backbuffer) return;
+    for (unsigned int j = 0; j < ctx->height; j++) {
+        memcpy(ctx->fb + j * ctx->pitch,
+               ctx->backbuffer + j * ctx->width,
+               ctx->width * sizeof(uint32_t));
+    }
 }
 
 void gui_draw_window_ex(struct gui_context *ctx, struct gui_window *win,
@@ -107,6 +123,7 @@ void gui_run_demo(struct gui_context *ctx) {
         gui_draw_desktop(ctx);
         gui_draw_window_ex(ctx, &win, 0xcccccc, 0x000000);
         gui_draw_cursor(ctx, ms->x, ms->y, 0xffffff);
+        gui_flush(ctx);
 
         if (ms->buttons & 1) {
             if (gui_window_handle_click(&win, ms->x, ms->y)) {
