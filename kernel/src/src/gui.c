@@ -37,3 +37,84 @@ void gui_draw_desktop(struct gui_context *ctx) {
     gui_draw_window(ctx, 50, 50, ctx->width / 2, ctx->height / 2, 0xcccccc, 0x000000);
 }
 
+void gui_draw_cursor(struct gui_context *ctx, int x, int y, uint32_t color) {
+    gui_fill_rect(ctx, x, y, 10, 1, color);
+    gui_fill_rect(ctx, x, y, 1, 10, color);
+}
+
+void gui_draw_window_ex(struct gui_context *ctx, struct gui_window *win,
+                        uint32_t bg_color, uint32_t border_color) {
+    if (!win || win->state == GUI_WINDOW_CLOSED)
+        return;
+
+    int x = win->x;
+    int y = win->y;
+    int w = win->w;
+    int h = win->h;
+
+    if (win->state == GUI_WINDOW_MAXIMIZED) {
+        x = 0;
+        y = 0;
+        w = ctx->width;
+        h = ctx->height;
+    } else if (win->state == GUI_WINDOW_MINIMIZED) {
+        h = 20;
+    }
+
+    gui_draw_window(ctx, x, y, w, h, bg_color, border_color);
+    gui_fill_rect(ctx, x + w - 45, y + 2, 12, 12, 0x666666); // min
+    gui_fill_rect(ctx, x + w - 30, y + 2, 12, 12, 0x666666); // max
+    gui_fill_rect(ctx, x + w - 15, y + 2, 12, 12, 0x666666); // close
+}
+
+bool gui_window_handle_click(struct gui_window *win, int x, int y) {
+    if (!win || win->state == GUI_WINDOW_CLOSED)
+        return false;
+
+    if (x < win->x || x >= win->x + win->w ||
+        y < win->y || y >= win->y + 20)
+        return false;
+
+    int rel = x - win->x;
+    if (rel >= win->w - 45 && rel < win->w - 30) {
+        win->state = GUI_WINDOW_MINIMIZED;
+        return true;
+    }
+    if (rel >= win->w - 30 && rel < win->w - 15) {
+        win->state = (win->state == GUI_WINDOW_MAXIMIZED) ? GUI_WINDOW_NORMAL : GUI_WINDOW_MAXIMIZED;
+        return true;
+    }
+    if (rel >= win->w - 15) {
+        win->state = GUI_WINDOW_CLOSED;
+        return true;
+    }
+
+    return false;
+}
+
+// Simple demo loop using the mouse driver
+#include "mouse.h"
+
+void gui_run_demo(struct gui_context *ctx) {
+    if (!ctx) return;
+    mouse_init();
+    struct gui_window win = {50, 50, ctx->width / 2, ctx->height / 2, GUI_WINDOW_NORMAL};
+
+    for (;;) {
+        mouse_poll();
+        struct mouse_state *ms = mouse_get_state();
+
+        gui_draw_desktop(ctx);
+        gui_draw_window_ex(ctx, &win, 0xcccccc, 0x000000);
+        gui_draw_cursor(ctx, ms->x, ms->y, 0xffffff);
+
+        if (ms->buttons & 1) {
+            if (gui_window_handle_click(&win, ms->x, ms->y)) {
+                while (mouse_get_state()->buttons & 1)
+                    mouse_poll();
+            }
+        }
+    }
+}
+
+
