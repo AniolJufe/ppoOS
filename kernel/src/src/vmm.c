@@ -393,14 +393,68 @@ bool vmm_map_page(pml4_t* pml4, uint64_t virt_addr, uint64_t phys_addr, uint64_t
 }
 
 void vmm_unmap_page(pml4_t* pml4, uint64_t virt_addr) {
-    // TODO: Implement page unmapping logic
-    serial_write("VMM WARN: vmm_unmap_page NOT IMPLEMENTED!\n", 40);
+    uint64_t pml4_index = (virt_addr >> 39) & 0x1FF;
+    uint64_t pdpt_index = (virt_addr >> 30) & 0x1FF;
+    uint64_t pd_index   = (virt_addr >> 21) & 0x1FF;
+    uint64_t pt_index   = (virt_addr >> 12) & 0x1FF;
+
+    pml4_t* pml4_virt = phys_to_virt((uint64_t)pml4);
+    pml4e_t* pml4e = &pml4_virt->entries[pml4_index];
+    if (!(*pml4e & PTE_PRESENT)) {
+        return;
+    }
+
+    pdpt_t* pdpt_virt = phys_to_virt(*pml4e & PAGE_MASK);
+    pdpte_t* pdpte = &pdpt_virt->entries[pdpt_index];
+    if (!(*pdpte & PTE_PRESENT)) {
+        return;
+    }
+
+    pd_t* pd_virt = phys_to_virt(*pdpte & PAGE_MASK);
+    pde_t* pde = &pd_virt->entries[pd_index];
+    if (!(*pde & PTE_PRESENT)) {
+        return;
+    }
+
+    pt_t* pt_virt = phys_to_virt(*pde & PAGE_MASK);
+    pte_t* pte = &pt_virt->entries[pt_index];
+    if (!(*pte & PTE_PRESENT)) {
+        return;
+    }
+
+    *pte = 0;
+    asm volatile ("invlpg (%0)" :: "r" (virt_addr) : "memory");
 }
 
 uint64_t vmm_get_physical_address(pml4_t* pml4, uint64_t virt_addr) {
-    // TODO: Implement virtual to physical translation
-    serial_write("VMM WARN: vmm_get_physical_address NOT IMPLEMENTED!\n", 51);
-    return 0;
+    uint64_t pml4_index = (virt_addr >> 39) & 0x1FF;
+    uint64_t pdpt_index = (virt_addr >> 30) & 0x1FF;
+    uint64_t pd_index   = (virt_addr >> 21) & 0x1FF;
+    uint64_t pt_index   = (virt_addr >> 12) & 0x1FF;
+
+    pml4_t* pml4_virt = phys_to_virt((uint64_t)pml4);
+    pml4e_t pml4e = pml4_virt->entries[pml4_index];
+    if (!(pml4e & PTE_PRESENT)) {
+        return 0;
+    }
+    pdpt_t* pdpt_virt = phys_to_virt(pml4e & PAGE_MASK);
+    pdpte_t pdpte = pdpt_virt->entries[pdpt_index];
+    if (!(pdpte & PTE_PRESENT)) {
+        return 0;
+    }
+    pd_t* pd_virt = phys_to_virt(pdpte & PAGE_MASK);
+    pde_t pde = pd_virt->entries[pd_index];
+    if (!(pde & PTE_PRESENT)) {
+        return 0;
+    }
+    pt_t* pt_virt = phys_to_virt(pde & PAGE_MASK);
+    pte_t pte = pt_virt->entries[pt_index];
+    if (!(pte & PTE_PRESENT)) {
+        return 0;
+    }
+
+    uint64_t phys_page = pte & PAGE_MASK;
+    return phys_page | (virt_addr & ~PAGE_MASK);
 }
 
 void vmm_switch_address_space(pml4_t* pml4) {
