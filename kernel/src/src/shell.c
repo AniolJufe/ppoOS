@@ -206,8 +206,7 @@ static void shell_exec(const char *cmd, char *argv[], int argc) {
         // Halt if reboot doesn't happen immediately
         for (;;) { asm volatile ("cli; hlt"); }
     } else if (!strcmp(cmd, "gui")) {
-        gui_draw_desktop(&gui_ctx);
-        for (;;) { asm volatile("cli; hlt"); }
+        gui_run_demo(&gui_ctx);
     } else if (!strcmp(cmd, "pwd")) {
         // Print working directory
         const char *cwd = fs_get_current_dir();
