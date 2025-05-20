@@ -9,6 +9,9 @@
 #include "elf.h"
 #include "exec.h"
 #include "syscall.h"
+#include "gui.h"
+
+extern struct gui_context gui_ctx;
 
 extern struct flanterm_context *ft_ctx;
 
@@ -189,6 +192,8 @@ static void shell_exec(const char *cmd, char *argv[], int argc) {
         shell_print_colored("║ ", ANSI_CYAN);
         shell_print_colored("  reboot - Reboot the system        ║\n", ANSI_CYAN);
         shell_print_colored("║ ", ANSI_CYAN);
+        shell_print_colored("  gui    - Start GUI demo          ║\n", ANSI_CYAN);
+        shell_print_colored("║ ", ANSI_CYAN);
         shell_print_colored("Other commands are executed via ELF.║\n", ANSI_CYAN);
         shell_print_colored("╚═════════════════════════════════════╝\n", ANSI_CYAN);
     } else if (!strcmp(cmd, "clear")) {
@@ -200,6 +205,9 @@ static void shell_exec(const char *cmd, char *argv[], int argc) {
         shell_print("Reboot command sent.\n");
         // Halt if reboot doesn't happen immediately
         for (;;) { asm volatile ("cli; hlt"); }
+    } else if (!strcmp(cmd, "gui")) {
+        gui_draw_desktop(&gui_ctx);
+        for (;;) { asm volatile("cli; hlt"); }
     } else if (!strcmp(cmd, "pwd")) {
         // Print working directory
         const char *cwd = fs_get_current_dir();
