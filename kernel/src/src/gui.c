@@ -45,8 +45,23 @@ void gui_draw_desktop(struct gui_context *ctx) {
 }
 
 void gui_draw_cursor(struct gui_context *ctx, int x, int y, uint32_t color) {
-    gui_fill_rect(ctx, x, y, 10, 1, color);
-    gui_fill_rect(ctx, x, y, 1, 10, color);
+    static const uint8_t arrow[8] = {
+        0b10000000,
+        0b11000000,
+        0b10100000,
+        0b10010000,
+        0b10001000,
+        0b10000100,
+        0b10000010,
+        0b11111111,
+    };
+
+    for (int j = 0; j < 8; j++) {
+        for (int i = 0; i < 8; i++) {
+            if (arrow[j] & (0x80 >> i))
+                gui_fill_rect(ctx, x + i, y + j, 1, 1, color);
+        }
+    }
 }
 
 void gui_flush(struct gui_context *ctx) {
@@ -119,6 +134,11 @@ void gui_run_demo(struct gui_context *ctx) {
     for (;;) {
         mouse_poll();
         struct mouse_state *ms = mouse_get_state();
+
+        if (ms->x < 0) ms->x = 0;
+        if (ms->y < 0) ms->y = 0;
+        if (ms->x >= (int)ctx->width)  ms->x = ctx->width - 1;
+        if (ms->y >= (int)ctx->height) ms->y = ctx->height - 1;
 
         gui_draw_desktop(ctx);
         gui_draw_window_ex(ctx, &win, 0xcccccc, 0x000000);

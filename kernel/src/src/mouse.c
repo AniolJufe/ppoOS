@@ -36,6 +36,7 @@ static uint8_t mouse_read(void) {
 }
 
 static struct mouse_state ms;
+#define MOUSE_SCALE 2
 static int8_t packet[3];
 static int packet_cycle = 0;
 
@@ -76,8 +77,8 @@ void mouse_poll(void) {
     packet_cycle = 0;
 
     ms.buttons = packet[0] & 0x07;
-    int dx = packet[1];
-    int dy = -packet[2];
+    int dx = packet[1] * MOUSE_SCALE;
+    int dy = -packet[2] * MOUSE_SCALE;
     ms.dx = dx;
     ms.dy = dy;
     ms.x += dx;
