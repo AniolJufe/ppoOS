@@ -22,8 +22,10 @@
 
 // Define user memory layout constants
 #define USER_STACK_PAGES 8 // Number of pages for the stack (8 * 4KiB = 32KiB)
-#define USER_STACK_TOP_VADDR  (0x80000000 - PAGE_SIZE) // Top page starts here (e.g., 0x7FFFF000)
-#define USER_STACK_BOTTOM_VADDR (USER_STACK_TOP_VADDR - (USER_STACK_PAGES * PAGE_SIZE))
+// USER_STACK_TOP_VADDR marks the base address of the highest stack page.
+#define USER_STACK_TOP_VADDR  (0x80000000 - PAGE_SIZE)
+// Bottom address calculated so that exactly USER_STACK_PAGES pages are mapped
+#define USER_STACK_BOTTOM_VADDR (USER_STACK_TOP_VADDR - ((USER_STACK_PAGES - 1) * PAGE_SIZE))
 
 // Define error codes for exec_elf function
 #define EXEC_SUCCESS 0
@@ -257,7 +259,7 @@ void exec_elf(const char *filename) {
     // 2. Free process memory - release all pages allocated for this process
     // For now, we'll just free the user stack pages since we know their range
     serial_write("[EXEC] Freeing user stack memory...\n", 36);
-    for (uint64_t vaddr = USER_STACK_BOTTOM_VADDR; vaddr < USER_STACK_TOP_VADDR; vaddr += PAGE_SIZE) {
+    for (uint64_t vaddr = USER_STACK_BOTTOM_VADDR; vaddr <= USER_STACK_TOP_VADDR; vaddr += PAGE_SIZE) {
         // Get the physical address for this virtual address
         void* phys_addr = (void*)vmm_get_physical_address(user_pml4_phys, vaddr);
         if (phys_addr) {
