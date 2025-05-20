@@ -4,4 +4,6 @@ currently has:
 - shell
 - elf execution
 - vmm
-- pmm (kinda) 
+- pmm (kinda)
+- userspace (not finished)
+- initramfs
