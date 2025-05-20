@@ -15,7 +15,7 @@ struct gui_context {
 void gui_init(struct gui_context *ctx, struct Framebuffer fb);
 void gui_fill_rect(struct gui_context *ctx, int x, int y, int w, int h, uint32_t color);
 void gui_draw_window(struct gui_context *ctx, int x, int y, int w, int h,
-                     uint32_t bg_color, uint32_t border_color);
+                     uint32_t bg_color, uint32_t border_color, int radius);
 void gui_draw_desktop(struct gui_context *ctx);
 
 enum gui_window_state {
