@@ -89,7 +89,7 @@ void mouse_poll(void){
 	ms.y +=dy;
 	if(ms.x < 0)ms.x=0;
 	if(ms.y < 0)ms.y=0;
-=======
+
 void mouse_poll(void) {
     if (!(inb(PS2_STATUS_PORT) & 1))
         return;
