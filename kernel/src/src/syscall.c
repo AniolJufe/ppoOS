@@ -14,8 +14,10 @@
 
 // Define user memory layout constants (copied from exec.c)
 #define USER_STACK_PAGES 8 // Number of pages for the stack (8 * 4KiB = 32KiB)
-#define USER_STACK_TOP_VADDR  (0x80000000 - PAGE_SIZE) // Top page starts here (e.g., 0x7FFFF000)
-#define USER_STACK_BOTTOM_VADDR (USER_STACK_TOP_VADDR - (USER_STACK_PAGES * PAGE_SIZE))
+// Highest page of the user stack
+#define USER_STACK_TOP_VADDR  (0x80000000 - PAGE_SIZE)
+// Bottom address so that exactly USER_STACK_PAGES pages are covered
+#define USER_STACK_BOTTOM_VADDR (USER_STACK_TOP_VADDR - ((USER_STACK_PAGES - 1) * PAGE_SIZE))
 
 // External functions we'll need
 extern struct flanterm_context *ft_ctx;
