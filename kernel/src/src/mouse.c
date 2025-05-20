@@ -39,6 +39,8 @@ static struct mouse_state ms;
 // Scale factor used to translate PS/2 deltas to screen pixels.
 // A slightly higher value makes cursor motion feel more responsive.
 #define MOUSE_SCALE 4
+
+#define MOUSE_SCALE 2
 static int8_t packet[3];
 static int packet_cycle=0;
 
@@ -87,4 +89,24 @@ void mouse_poll(void){
 	ms.y +=dy;
 	if(ms.x < 0)ms.x=0;
 	if(ms.y < 0)ms.y=0;
+=======
+void mouse_poll(void) {
+    if (!(inb(PS2_STATUS_PORT) & 1))
+        return;
+
+    int8_t data = inb(PS2_DATA_PORT);
+    packet[packet_cycle++] = data;
+    if (packet_cycle < 3)
+        return;
+    packet_cycle = 0;
+
+    ms.buttons = packet[0] & 0x07;
+    int dx = packet[1] * MOUSE_SCALE;
+    int dy = -packet[2] * MOUSE_SCALE;
+    ms.dx = dx;
+    ms.dy = dy;
+    ms.x += dx;
+    ms.y += dy;
+    if (ms.x < 0) ms.x = 0;
+    if (ms.y < 0) ms.y = 0;
 }
