@@ -108,6 +108,7 @@ CFILES := \
     src/keyboard.c \
     src/serial.c \
     src/shell.c \
+    src/gui.c \
     src/syscall.c \
     src/usermode_return.c \
     src/vmm.c
