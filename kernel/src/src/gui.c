@@ -29,19 +29,53 @@ void gui_fill_rect(struct gui_context *ctx, int x, int y, int w, int h, uint32_t
 }
 
 void gui_draw_window(struct gui_context *ctx, int x, int y, int w, int h,
-                     uint32_t bg_color, uint32_t border_color) {
+                     uint32_t bg_color, uint32_t border_color, int radius) {
     if (w <= 2 || h <= 2) return;
-    gui_fill_rect(ctx, x, y, w, 1, border_color);
-    gui_fill_rect(ctx, x, y + h - 1, w, 1, border_color);
-    gui_fill_rect(ctx, x, y, 1, h, border_color);
-    gui_fill_rect(ctx, x + w - 1, y, 1, h, border_color);
-    gui_fill_rect(ctx, x + 1, y + 1, w - 2, h - 2, bg_color);
+
+    if (radius <= 0) {
+        gui_fill_rect(ctx, x, y, w, 1, border_color);
+        gui_fill_rect(ctx, x, y + h - 1, w, 1, border_color);
+        gui_fill_rect(ctx, x, y, 1, h, border_color);
+        gui_fill_rect(ctx, x + w - 1, y, 1, h, border_color);
+        gui_fill_rect(ctx, x + 1, y + 1, w - 2, h - 2, bg_color);
+        return;
+    }
+
+    if (radius * 2 > w) radius = w / 2;
+    if (radius * 2 > h) radius = h / 2;
+
+    gui_fill_rect(ctx, x + radius, y, w - 2 * radius, radius, border_color);
+    gui_fill_rect(ctx, x + radius, y + h - radius, w - 2 * radius, radius, border_color);
+    gui_fill_rect(ctx, x, y + radius, radius, h - 2 * radius, border_color);
+    gui_fill_rect(ctx, x + w - radius, y + radius, radius, h - 2 * radius, border_color);
+
+    gui_fill_rect(ctx, x + radius, y + radius, w - 2 * radius, h - 2 * radius, bg_color);
+
+    int r2 = radius * radius;
+    for (int j = 0; j < radius; j++) {
+        for (int i = 0; i < radius; i++) {
+            int dx = radius - 1 - i;
+            int dy = radius - 1 - j;
+            if (dx * dx + dy * dy >= r2) {
+                gui_fill_rect(ctx, x + i, y + j, 1, 1, border_color);
+                gui_fill_rect(ctx, x + w - 1 - i, y + j, 1, 1, border_color);
+                gui_fill_rect(ctx, x + i, y + h - 1 - j, 1, 1, border_color);
+                gui_fill_rect(ctx, x + w - 1 - i, y + h - 1 - j, 1, 1, border_color);
+            } else {
+                gui_fill_rect(ctx, x + i, y + j, 1, 1, bg_color);
+                gui_fill_rect(ctx, x + w - 1 - i, y + j, 1, 1, bg_color);
+                gui_fill_rect(ctx, x + i, y + h - 1 - j, 1, 1, bg_color);
+                gui_fill_rect(ctx, x + w - 1 - i, y + h - 1 - j, 1, 1, bg_color);
+            }
+        }
+    }
 }
 
 void gui_draw_desktop(struct gui_context *ctx) {
     if (!ctx) return;
     gui_fill_rect(ctx, 0, 0, ctx->width, ctx->height, 0x002244);
-    gui_draw_window(ctx, 50, 50, ctx->width / 2, ctx->height / 2, 0xcccccc, 0x000000);
+    gui_draw_window(ctx, 50, 50, ctx->width / 2, ctx->height / 2,
+                    0xcccccc, 0x000000, 8);
 }
 
 void gui_draw_cursor(struct gui_context *ctx, int x, int y, uint32_t color) {
@@ -92,7 +126,7 @@ void gui_draw_window_ex(struct gui_context *ctx, struct gui_window *win,
         h = 20;
     }
 
-    gui_draw_window(ctx, x, y, w, h, bg_color, border_color);
+    gui_draw_window(ctx, x, y, w, h, bg_color, border_color, 8);
     gui_fill_rect(ctx, x + w - 45, y + 2, 12, 12, 0x666666); // min
     gui_fill_rect(ctx, x + w - 30, y + 2, 12, 12, 0x666666); // max
     gui_fill_rect(ctx, x + w - 15, y + 2, 12, 12, 0x666666); // close
