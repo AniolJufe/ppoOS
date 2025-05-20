@@ -5,6 +5,7 @@
 #include <string.h> // Added for memcpy, strncpy
 #include "kernel.h"
 #include "fs.h"
+#include "keyboard.h"
 #include "serial.h" // Needed for serial_write in fork syscall
 #include "flanterm.h" // Include the full definition of flanterm_context
 #include "vmm.h"     // For vmm_get_current_address_space and vmm_switch_address_space
@@ -250,58 +251,55 @@ static int64_t sys_read(uint64_t fd, uint64_t buf_ptr, uint64_t count, uint64_t 
         return 0;
     }
 
-    // Only stdin supported for now (basic, non-blocking)
+    // ----------------------
+    // Read from standard input
+    // ----------------------
     if (fd == STDIN_FD) {
-        // TODO: Implement proper blocking keyboard read. This requires integrating
-        // with the keyboard driver and potentially process scheduling.
-        // For now, return 0 (EOF or no data available).
-        return 0;
+        size_t read_bytes = 0;
+        char kbuf[4096];
+        size_t to_read = count > sizeof(kbuf) ? sizeof(kbuf) : count;
+
+        while (read_bytes < to_read) {
+            char c = keyboard_read_char();
+            if (!c)
+                continue;
+            // Translate carriage return to newline for convenience
+            if (c == '\r')
+                c = '\n';
+            kbuf[read_bytes++] = c;
+            if (c == '\n')
+                break;
+        }
+
+        int64_t copied = copy_to_user((void *)buf_ptr, kbuf, read_bytes);
+        if (copied < 0)
+            return -1;
+        return copied;
     }
-    // Handle file input
+    // ----------------------
+    // Read from an opened file
+    // ----------------------
     else if (fd >= 3 && fd < MAX_FDS && fd_table[fd].used) {
         struct file_descriptor *desc = &fd_table[fd];
         struct fs_file *file = desc->file;
 
-        // Check if we're at EOF
-        if (desc->position >= file->size) {
-            return 0; // EOF
-        }
-
-        // Calculate how many bytes to read
-        size_t remaining = file->size - desc->position;
-        size_t to_read = count < remaining ? count : remaining;
-
-        // Limit read size to prevent excessive kernel buffer usage if needed,
-        // or handle large reads in chunks.
-        if (to_read > 4096) {
+        // Calculate bytes to read using filesystem helper
+        size_t to_read = count;
+        if (to_read > 4096)
             to_read = 4096;
-        }
 
-        // Allocate a temporary kernel buffer
         char kbuf[4096];
+        size_t bytes_read = fs_read(file, desc->position, kbuf, to_read);
 
-        // Read data from file into kernel buffer
-        // Assuming fs_read reads from file->data based on offset and size
-        // We need a proper fs_read function here.
-        // For now, simulate reading directly from file->data if available.
-        if (file->data) {
-             // TODO: Replace with actual fs_read(file, desc->position, kbuf, to_read);
-             memcpy(kbuf, (const char *)file->data + desc->position, to_read);
-        } else {
-             return -1; // Cannot read if file data is not available
-        }
+        if (bytes_read == 0)
+            return 0; // EOF
 
-        // Copy data from kernel buffer to user buffer
-        int64_t copied_bytes = copy_to_user((void *)buf_ptr, kbuf, to_read);
-
-        if (copied_bytes < 0) {
+        int64_t copied = copy_to_user((void *)buf_ptr, kbuf, bytes_read);
+        if (copied < 0)
             return -1; // EFAULT
-        }
 
-        // Update position only if copy was successful
-        desc->position += (size_t)copied_bytes;
-
-        return copied_bytes;
+        desc->position += bytes_read;
+        return copied;
     }
 
     return -1; // Invalid fd (EBADF)
