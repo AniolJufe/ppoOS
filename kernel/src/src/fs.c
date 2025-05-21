@@ -324,7 +324,10 @@ size_t fs_write(struct fs_file *file, size_t offset, const void *buf, size_t len
             return 0; // Failed to allocate
         }
         
-        // Copy existing data
+        // Zero the new buffer so unwritten regions don't expose stale data
+        memset(new_data, 0, new_capacity);
+
+        // Copy existing file contents
         memcpy(new_data, file->data, file->size);
         
         // Update file struct
@@ -332,6 +335,11 @@ size_t fs_write(struct fs_file *file, size_t offset, const void *buf, size_t len
         file->capacity = new_capacity;
     }
     
+    // If writing past the current end, zero the gap so reads return consistent data
+    if (offset > file->size) {
+        memset(file->data + file->size, 0, offset - file->size);
+    }
+
     // Write the data
     memcpy(file->data + offset, buf, len);
     
