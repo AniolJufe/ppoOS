@@ -208,12 +208,12 @@ struct fs_file *fs_open(const char *name) {
 
         // Strip './' from the entry name if present
         if (strncmp(processed_entry, "./", 2) == 0) {
-            // Safer approach - copy the string starting at position 2
-            for (size_t j = 0; j < sizeof(processed_entry) - 3; j++) {
-                processed_entry[j] = processed_entry[j + 2];
+            size_t len = strlen(processed_entry);
+            if (len >= 2) {
+                memmove(processed_entry, processed_entry + 2,
+                        len - 1); // include null terminator
+                processed_entry[len - 2] = '\0';
             }
-            // Ensure string remains null-terminated
-            processed_entry[sizeof(processed_entry) - 3] = '\0';
         }
 
 
