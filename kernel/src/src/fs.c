@@ -153,10 +153,31 @@ bool fs_change_dir(const char *path) {
     
     // Handle based on active filesystem
     if (fs.active_fs == FS_TYPE_EXT2) {
-        // Use ext2 driver
-        if (ext2_change_dir(path)) {
-            // Update our current directory
-            strcpy(fs.current_dir, path);
+        // For ext2 we maintain our own current directory string. Build
+        // an absolute path so both the driver and fs state stay in sync.
+
+        char abs_path[FS_MAX_PATH];
+        if (path[0] == '/') {
+            // Already absolute
+            strncpy(abs_path, path, sizeof(abs_path) - 1);
+            abs_path[sizeof(abs_path) - 1] = '\0';
+        } else {
+            // Construct path relative to current directory
+            strncpy(abs_path, fs.current_dir, sizeof(abs_path) - 1);
+            abs_path[sizeof(abs_path) - 1] = '\0';
+
+            size_t len = strlen(abs_path);
+            if (len == 0 || abs_path[len - 1] != '/') {
+                strncat(abs_path, "/", sizeof(abs_path) - len - 1);
+                len++;
+            }
+
+            strncat(abs_path, path, sizeof(abs_path) - len - 1);
+        }
+
+        if (ext2_change_dir(abs_path)) {
+            strncpy(fs.current_dir, abs_path, sizeof(fs.current_dir) - 1);
+            fs.current_dir[sizeof(fs.current_dir) - 1] = '\0';
             return true;
         }
         return false;
